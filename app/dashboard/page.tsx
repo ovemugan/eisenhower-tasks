@@ -46,24 +46,33 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let unsubscribeTasks: (() => void) | null = null;
+
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser);
       setLoading(false);
 
+      if (unsubscribeTasks) {
+        unsubscribeTasks();
+        unsubscribeTasks = null;
+      }
+
       if (currentUser) {
         const q = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
-        const unsubscribeTasks = onSnapshot(q, (snapshot) => {
+        unsubscribeTasks = onSnapshot(q, (snapshot) => {
           const tasksData = snapshot.docs.map((doc) => ({
             id: doc.id,
             ...doc.data(),
           })) as Task[];
           setTasks(tasksData);
         });
-        return unsubscribeTasks;
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubscribeTasks) unsubscribeTasks();
+    };
   }, []);
 
   const handleAddTask = async () => {
