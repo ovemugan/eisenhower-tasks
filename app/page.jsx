@@ -2,11 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  onAuthStateChanged,
-} from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import './auth.css';
 
@@ -19,19 +15,16 @@ export default function AuthPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        router.push('/dashboard');
-      }
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) router.push('/dashboard');
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, [router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       if (isSignUp) {
         await createUserWithEmailAndPassword(auth, email, password);
@@ -39,7 +32,7 @@ export default function AuthPage() {
         await signInWithEmailAndPassword(auth, email, password);
       }
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
@@ -51,47 +44,20 @@ export default function AuthPage() {
       <div className="auth-card">
         <h1>Eisenhower Task Manager</h1>
         <p className="subtitle">Sync your tasks across all devices</p>
-
         <form onSubmit={handleSubmit}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-
+          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           {error && <div className="error-message">{error}</div>}
-
           <button type="submit" disabled={loading} className="submit-btn">
             {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
           </button>
         </form>
-
         <div className="toggle-auth">
-          {isSignUp ? "Already have an account? " : "Don't have an account? "}
-          <button
-            type="button"
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError('');
-            }}
-            className="toggle-btn"
-          >
+          {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+          <button type="button" onClick={() => { setIsSignUp(!isSignUp); setError(''); }} className="toggle-btn">
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
         </div>
-      </div>
-
-      <div className="auth-footer">
-        <p>Data syncs in real-time • Works offline • Secure Firebase backend</p>
       </div>
     </div>
   );
