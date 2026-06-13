@@ -25,10 +25,10 @@ interface Task {
 }
 
 const QUADRANT_META = {
-  do: { label: 'Do first', color: '#639922', tag: 'D1' },
-  schedule: { label: 'Schedule', color: '#185FA5', tag: 'SC' },
-  delegate: { label: 'Delegate', color: '#BA7517', tag: 'DG' },
-  eliminate: { label: 'Eliminate', color: '#888780', tag: 'EL' },
+  do: { label: 'Do first', color: '#639922' },
+  schedule: { label: 'Schedule', color: '#185FA5' },
+  delegate: { label: 'Delegate', color: '#BA7517' },
+  eliminate: { label: 'Eliminate', color: '#888780' },
 };
 
 const STATUS_META = {
@@ -46,38 +46,42 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let unsubscribeTasks: (() => void) | null = null;
+    let taskUnsub: (() => void) | undefined = undefined;
 
-    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+    const authUnsub = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser);
       setLoading(false);
 
-      if (unsubscribeTasks) {
-        unsubscribeTasks();
-        unsubscribeTasks = null;
+      if (taskUnsub) {
+        taskUnsub();
+        taskUnsub = undefined;
       }
 
       if (currentUser) {
-        const q = query(collection(db, 'tasks'), where('userId', '==', currentUser.uid));
-        unsubscribeTasks = onSnapshot(q, (snapshot) => {
-          const tasksData = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          })) as Task[];
-          setTasks(tasksData);
+        const q = query(
+          collection(db, 'tasks'),
+          where('userId', '==', currentUser.uid)
+        );
+        taskUnsub = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<Task, 'id'>),
+          }));
+          setTasks(data);
         });
+      } else {
+        setTasks([]);
       }
     });
 
     return () => {
-      unsubscribe();
-      if (unsubscribeTasks) unsubscribeTasks();
+      authUnsub();
+      if (taskUnsub) taskUnsub();
     };
   }, []);
 
   const handleAddTask = async () => {
     if (!newTask.text.trim() || !user) return;
-
     await addDoc(collection(db, 'tasks'), {
       text: newTask.text,
       quadrant: newTask.quadrant,
@@ -85,22 +89,17 @@ export default function Dashboard() {
       userId: user.uid,
       createdAt: Date.now(),
     });
-
     setNewTask({ text: '', quadrant: 'do', status: 'todo' });
     setShowModal(false);
   };
 
   const handleToggleTask = async (taskId: string, currentStatus: string) => {
-    const statusCycle: Record<string, string> = {
+    const cycle: Record<string, string> = {
       todo: 'inprogress',
       inprogress: 'done',
       done: 'todo',
     };
-
-    const taskRef = doc(db, 'tasks', taskId);
-    await updateDoc(taskRef, {
-      status: statusCycle[currentStatus],
-    });
+    await updateDoc(doc(db, 'tasks', taskId), { status: cycle[currentStatus] });
   };
 
   const handleDeleteTask = async (taskId: string) => {
@@ -111,52 +110,40 @@ export default function Dashboard() {
     await signOut(auth);
   };
 
-  if (loading) {
-    return <div className="loading">Loading...</div>;
-  }
-
-  if (!user) {
-    return null;
-  }
+  if (loading) return <div className="loading">Loading...</div>;
+  if (!user) return null;
 
   return (
     <div className="dashboard">
       <header className="header">
         <h1>Eisenhower Task Manager</h1>
-        <button onClick={handleLogout} className="logout-btn">
-          Logout
-        </button>
+        <button onClick={handleLogout} className="logout-btn">Logout</button>
       </header>
 
       <div className="toolbar">
         <div className="view-tabs">
-          <button
-            className={`tab ${currentView === 'matrix' ? 'active' : ''}`}
-            onClick={() => setCurrentView('matrix')}
-          >
-            Matrix
-          </button>
-          <button
-            className={`tab ${currentView === 'list' ? 'active' : ''}`}
-            onClick={() => setCurrentView('list')}
-          >
-            List
-          </button>
-          <button
-            className={`tab ${currentView === 'status' ? 'active' : ''}`}
-            onClick={() => setCurrentView('status')}
-          >
-            Status
-          </button>
+          {(['matrix', 'list', 'status'] as const).map((v) => (
+            <button
+              key={v}
+              className={`tab ${currentView === v ? 'active' : ''}`}
+              onClick={() => setCurrentView(v)}
+            >
+              {v.charAt(0).toUpperCase() + v.slice(1)}
+            </button>
+          ))}
         </div>
-        <button className="add-btn" onClick={() => setShowModal(true)}>
-          + Add task
-        </button>
+        <button className="add-btn" onClick={() => setShowModal(true)}>+ Add task</button>
       </div>
 
-      {currentView === 'matrix' && <MatrixView tasks={tasks} onToggle={handleToggleTask} />}
-      {currentView === 'list' && <ListView tasks={tasks} onToggle={handleToggleTask} />}
-      {currentView === 'status' && <StatusView tasks={tasks} onToggle={handleToggleTask} />}
+      {currentView === 'matrix' && (
+        <MatrixView tasks={tasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+      )}
+      {currentView === 'list' && (
+        <ListView tasks={tasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+      )}
+      {currentView === 'status' && (
+        <StatusView tasks={tasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+      )}
 
       {showModal && (
         <div className="modal-backdrop" onClick={() => setShowModal(false)}>
@@ -167,14 +154,12 @@ export default function Dashboard() {
               placeholder="Task name..."
               value={newTask.text}
               onChange={(e) => setNewTask({ ...newTask, text: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddTask();
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddTask(); }}
               autoFocus
             />
             <select
               value={newTask.quadrant}
-              onChange={(e) => setNewTask({ ...newTask, quadrant: e.target.value as any })}
+              onChange={(e) => setNewTask({ ...newTask, quadrant: e.target.value })}
             >
               <option value="do">Do first — Urgent + Important</option>
               <option value="schedule">Schedule — Not urgent + Important</option>
@@ -183,7 +168,7 @@ export default function Dashboard() {
             </select>
             <select
               value={newTask.status}
-              onChange={(e) => setNewTask({ ...newTask, status: e.target.value as any })}
+              onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
             >
               <option value="todo">Not started</option>
               <option value="inprogress">In progress</option>
@@ -191,9 +176,7 @@ export default function Dashboard() {
             </select>
             <div className="modal-btns">
               <button onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="primary" onClick={handleAddTask}>
-                Add task
-              </button>
+              <button className="primary" onClick={handleAddTask}>Add task</button>
             </div>
           </div>
         </div>
@@ -202,35 +185,41 @@ export default function Dashboard() {
   );
 }
 
-function MatrixView({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string, status: string) => void }) {
+function MatrixView({
+  tasks,
+  onToggle,
+  onDelete,
+}: {
+  tasks: Task[];
+  onToggle: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="matrix">
       {(['do', 'schedule', 'delegate', 'eliminate'] as const).map((q) => {
-        const quadrantTasks = tasks.filter((t) => t.quadrant === q);
         const meta = QUADRANT_META[q];
+        const qTasks = tasks.filter((t) => t.quadrant === q);
         return (
           <div key={q} className="quadrant">
             <div className="q-header">
               <div className="q-dot" style={{ background: meta.color }} />
               <span className="q-label">{meta.label}</span>
             </div>
-            <div className="q-tasks">
-              {quadrantTasks.map((task) => (
-                <div key={task.id} className="task-card">
-                  <input
-                    type="checkbox"
-                    checked={task.status === 'done'}
-                    onChange={() => onToggle(task.id, task.status)}
-                    className="task-check"
-                  />
-                  <span className={`task-text ${task.status === 'done' ? 'done' : ''}`}>
-                    {task.text}
-                  </span>
-                  <span className="task-tag">{STATUS_META[task.status].label}</span>
-                </div>
-              ))}
-              {quadrantTasks.length === 0 && <div className="empty">No tasks</div>}
-            </div>
+            {qTasks.map((task) => (
+              <div key={task.id} className="task-card">
+                <input
+                  type="checkbox"
+                  checked={task.status === 'done'}
+                  onChange={() => onToggle(task.id, task.status)}
+                />
+                <span className={`task-text ${task.status === 'done' ? 'done' : ''}`}>
+                  {task.text}
+                </span>
+                <span className="task-tag">{STATUS_META[task.status].label}</span>
+                <button className="del-btn" onClick={() => onDelete(task.id)}>×</button>
+              </div>
+            ))}
+            {qTasks.length === 0 && <div className="empty">No tasks</div>}
           </div>
         );
       })}
@@ -238,7 +227,15 @@ function MatrixView({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string,
   );
 }
 
-function ListView({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string, status: string) => void }) {
+function ListView({
+  tasks,
+  onToggle,
+  onDelete,
+}: {
+  tasks: Task[];
+  onToggle: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="list-view">
       <div className="list-header">
@@ -246,61 +243,66 @@ function ListView({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string, s
         <div className="list-col">Task</div>
         <div className="list-col">Quadrant</div>
         <div className="list-col">Status</div>
+        <div></div>
       </div>
-      <div className="list-body">
-        {tasks.map((task) => (
-          <div key={task.id} className="list-row">
-            <input
-              type="checkbox"
-              checked={task.status === 'done'}
-              onChange={() => onToggle(task.id, task.status)}
-            />
-            <span className={`list-task-text ${task.status === 'done' ? 'done' : ''}`}>
-              {task.text}
-            </span>
-            <span style={{ color: QUADRANT_META[task.quadrant].color, fontSize: '12px', fontWeight: 500 }}>
-              {QUADRANT_META[task.quadrant].label}
-            </span>
-            <span style={{ fontSize: '12px' }}>{STATUS_META[task.status].label}</span>
-          </div>
-        ))}
-        {tasks.length === 0 && <div className="empty">No tasks</div>}
-      </div>
+      {tasks.map((task) => (
+        <div key={task.id} className="list-row">
+          <input
+            type="checkbox"
+            checked={task.status === 'done'}
+            onChange={() => onToggle(task.id, task.status)}
+          />
+          <span className={`list-task-text ${task.status === 'done' ? 'done' : ''}`}>
+            {task.text}
+          </span>
+          <span style={{ color: QUADRANT_META[task.quadrant].color, fontSize: '12px', fontWeight: 500 }}>
+            {QUADRANT_META[task.quadrant].label}
+          </span>
+          <span style={{ fontSize: '12px' }}>{STATUS_META[task.status].label}</span>
+          <button className="del-btn" onClick={() => onDelete(task.id)}>×</button>
+        </div>
+      ))}
+      {tasks.length === 0 && <div className="empty">No tasks yet</div>}
     </div>
   );
 }
 
-function StatusView({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string, status: string) => void }) {
-  const statuses = ['todo', 'inprogress', 'done'] as const;
-
+function StatusView({
+  tasks,
+  onToggle,
+  onDelete,
+}: {
+  tasks: Task[];
+  onToggle: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="status-cols">
-      {statuses.map((status) => {
-        const statusTasks = tasks.filter((t) => t.status === status);
+      {(['todo', 'inprogress', 'done'] as const).map((s) => {
+        const sTasks = tasks.filter((t) => t.status === s);
         return (
-          <div key={status} className="status-col">
+          <div key={s} className="status-col">
             <div className="status-col-header">
-              {STATUS_META[status].label}
-              <span className="status-count">{statusTasks.length}</span>
+              {STATUS_META[s].label}
+              <span className="status-count">{sTasks.length}</span>
             </div>
-            <div className="status-cards">
-              {statusTasks.map((task) => (
-                <div key={task.id} className="status-card">
-                  <input
-                    type="checkbox"
-                    checked={task.status === 'done'}
-                    onChange={() => onToggle(task.id, task.status)}
-                  />
-                  <div>
-                    <div className="status-task-text">{task.text}</div>
-                    <div className="status-task-quadrant">
-                      {QUADRANT_META[task.quadrant].label}
-                    </div>
+            {sTasks.map((task) => (
+              <div key={task.id} className="status-card">
+                <input
+                  type="checkbox"
+                  checked={task.status === 'done'}
+                  onChange={() => onToggle(task.id, task.status)}
+                />
+                <div style={{ flex: 1 }}>
+                  <div className="status-task-text">{task.text}</div>
+                  <div className="status-task-quadrant">
+                    {QUADRANT_META[task.quadrant].label}
                   </div>
                 </div>
-              ))}
-              {statusTasks.length === 0 && <div className="empty">No tasks</div>}
-            </div>
+                <button className="del-btn" onClick={() => onDelete(task.id)}>×</button>
+              </div>
+            ))}
+            {sTasks.length === 0 && <div className="empty">No tasks</div>}
           </div>
         );
       })}
